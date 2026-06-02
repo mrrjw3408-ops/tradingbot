@@ -1,0 +1,28 @@
+name: Trading Bot Scanner
+
+on:
+  schedule:
+    - cron: '0 13 * * 1-5'    # 8:00 AM CT
+    - cron: '0 17 * * 1-5'    # 12:00 PM CT
+    - cron: '30 21 * * 1-5'   # 4:30 PM CT
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install yfinance pandas gspread google-auth
+
+      - name: Create credentials file
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+
+      - name: Run scanner
+        run: python3 outcomes.py
