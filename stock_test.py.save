@@ -1,0 +1,24 @@
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+client = gspread.authorize(creds)
+sheet = client.open("Trading Bot Log")
+
+# Initialize Portfolio tab
+portfolio = sheet.worksheet("Portfolio")
+portfolio.append_row([
+    datetime.now().strftime("%Y-%m-%d %H:%M"),
+    100000,  # Starting cash
+    100000,  # Current cash
+    0,       # Open positions
+    100000,  # Total value
+    0,       # Total return %
+    0,       # Win rate
+    0        # Total trades
+])
+
+print("Portfolio initialized with $100,000!")
+print("Setup complete!")
