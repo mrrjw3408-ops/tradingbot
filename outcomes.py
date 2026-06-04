@@ -13,6 +13,26 @@ scan_log = sheet.worksheet("Scan Log")
 outcomes = sheet.worksheet("Outcomes")
 
 # All 300 tickers by sector
+sector_etfs = {
+    "Energy": "XLE",
+    "Infrastructure": "PAVE",
+    "Finance": "XLF",
+    "Health": "XLV",
+    "Semiconductors": "SOXX",
+    "Backdoor Tech": "XLK"
+}
+
+# Pre-fetch sector ETF returns
+print("Fetching sector ETF benchmarks...")
+etf_returns = {}
+for sector, etf in sector_etfs.items():
+    try:
+        etf_df = yf.Ticker(etf).history(period="1mo")
+        etf_returns[sector] = (etf_df["Close"].iloc[-1] / etf_df["Close"].iloc[-20] - 1) * 100
+        print(f"{etf} ({sector}): {etf_returns[sector]:.2f}%")
+    except:
+        etf_returns[sector] = 0
+
 stocks = {
     "Energy": ["XOM","CVX","COP","EOG","SLB","MPC","PSX","VLO","OXY","HAL","BKR","DVN","HES","MRO","WMB","OKE","KMI","LNG","ET","EPD","PAA","TRGP","MPLX","ENB","TRP","NRG","AES","EXC","NEE","DUK","SO","ED","PCG","ETR","XEL","WEC","ES","CMS","NI","ATO"],
     "Infrastructure": ["UNP","CSX","NSC","CP","CNI","WAB","GWW","PWR","MTZ","EME","ACM","FLR","KBR","TTEK","VMC","MLM","EXP","SUM","AWK","AMT","CCI","SBAC","DLR","EQIX","PLD","PSA","EXR","CUBE","REXR","FR","EGP","STAG","LXP","TRNO","WTR","MSEX","CWT","SJW","YORW","ARTNA"],
@@ -64,14 +84,9 @@ for sector, tickers in stocks.items():
             sector_ticker = tickers[0]
             if ticker != sector_ticker:
                 sector_df = yf.Ticker(sector_ticker).history(period="1mo")
-                if not sector_df.empty:
-                    stock_return = (df["Close"].iloc[-1] / df["Close"].iloc[-20] - 1)
-                    sector_return = (sector_df["Close"].iloc[-1] / sector_df["Close"].iloc[-20] - 1)
-                    rel_strength = stock_return - sector_return
-                else:
-                    rel_strength = 0
-            else:
-                rel_strength = 0
+            stock_return = (df["Close"].iloc[-1] / df["Close"].iloc[-20] - 1) * 100
+            sector_return = etf_returns.get(sector, 0)
+            rel_strength = stock_return - sector_return
 
             latest = df.iloc[-1]
             price = latest["Close"]

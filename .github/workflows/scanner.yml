@@ -24,3 +24,5 @@ jobs:
         run: echo "$GOOGLE_CREDENTIALS" > credentials.json
       - name: Run scanner
         run: python3 outcomes.py
+      - name: Check outcomes
+        run: python3 outcomes_checker.py
