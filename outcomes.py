@@ -42,6 +42,13 @@ stocks = {
     "Backdoor Tech": ["CSCO","JNPR","FFIV","NTAP","PSTG","HPE","DELL","STX","WDC","T","VZ","TMUS","LUMN","CCOI","CRWD","PANW","FTNT","ZS","OKTA","S","TENB","RPD","VRNS","QLYS","ETN","CARR","TT","JCI","GTLS","VICR","BEL","CTS","LFUS","NOVT","NATI","CABO","SHEN","ITRN","AWR","OTIS"]
 }
 
+print("Checking market conditions...")
+spy_df = yf.Ticker("SPY").history(period="3mo")
+spy_ma50 = spy_df["Close"].rolling(50).mean().iloc[-1]
+spy_price = spy_df["Close"].iloc[-1]
+market_uptrend = spy_price > spy_ma50
+market_filter_bonus = 0 if market_uptrend else -2
+print(f"SPY: ${spy_price:.2f} | 50MA: ${spy_ma50:.2f}")
 print("Starting scan of 300 stocks...\n")
 
 now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -137,7 +144,7 @@ for sector, tickers in stocks.items():
             hedge_score = 0
             score += hedge_score
 
-            score = round(min(score, 10), 2)
+            score = round(min(max(score + market_filter_bonus, 0), 10), 2)
 
             # Log to Scan Log
             scan_log.append_row([
