@@ -16,3 +16,6 @@ BREADTH_BULL = 70
 BREADTH_BEAR = 50
 YIELD_CURVE_FLAT = 0.1
 SECTORS = {"Energy":"XLE","Infrastructure":"PAVE","Finance":"XLF","Health":"XLV","Semiconductors":"SOXX","Backdoor Tech":"XLK"}
+
+NOTIFICATION_EMAIL = "mrrjw3408@gmail.com"
+GMAIL_APP_PASSWORD = "ahsf xuyv juvj gnmv"
