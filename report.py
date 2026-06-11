@@ -1,6 +1,7 @@
 import smtplib
 import sys
 import os
+import yfinance as yf
 import gspread
 from google.oauth2.service_account import Credentials
 from email.mime.text import MIMEText
@@ -9,29 +10,32 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import NOTIFICATION_EMAIL, GMAIL_APP_PASSWORD
 
+
 def get_sector_performance():
-    try:
-        import yfinance as yf
-        sector_etfs = {
-            "Semiconductors": "SOXX",
-            "Backdoor Tech": "XLK",
-            "Health": "XLV",
-            "Finance": "XLF",
-            "Energy": "XLE",
-            "Infrastructure": "PAVE"
-        }
-        results = {}
-        for sector, etf in sector_etfs.items():
+    sector_etfs = {
+        "Semiconductors": "SOXX",
+        "Backdoor Tech": "XLK",
+        "Health": "XLV",
+        "Finance": "XLF",
+        "Energy": "XLE",
+        "Infrastructure": "PAVE"
+    }
+    results = {}
+    for sector, etf in sector_etfs.items():
+        try:
             df = yf.Ticker(etf).history(period="3mo")
-            if not df.empty:
-             if len(df) < 10:
-              continue
-             lookback = min(20, len(df) - 1)
-             ret = (df["Close"].iloc[-1] / df["Close"].iloc[-lookback] - 1) * 100    
-                results[sector] = round(ret, 2)
-        return dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
-    except:
-        return {}
+            closes = df["Close"].dropna()
+            if len(closes) < 10:
+                continue
+            lookback = min(20, len(closes) - 1)
+            last = closes.iloc[-1]
+            prev = closes.iloc[-lookback]
+            if last > 0 and prev > 0:
+                ret = round((last / prev - 1) * 100, 2)
+                results[sector] = ret
+        except:
+            continue
+    return dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
 
 def get_portfolio_stats():
     try:
@@ -40,14 +44,12 @@ def get_portfolio_stats():
         client = gspread.authorize(creds)
         sheet = client.open("Trading Bot Log")
 
-        # Get scan log stats
         scan_log = sheet.worksheet("Scan Log")
         rows = scan_log.get_all_values()
         today = datetime.now().strftime("%Y-%m-%d")
-        today_rows = [r for r in rows[1:] if r and r[0].startswith(today)]
+        today_rows = [r for r in rows[1:] if r and len(r) > 2 and r[0].startswith(today)]
         total_scans = len(today_rows)
 
-        # Get outcomes stats
         outcomes = sheet.worksheet("Outcomes")
         outcome_rows = outcomes.get_all_values()
         wins = sum(1 for r in outcome_rows[1:] if len(r) > 9 and r[9] == "WIN")
@@ -55,34 +57,36 @@ def get_portfolio_stats():
         total_trades = wins + losses
         win_rate = round(wins / total_trades * 100) if total_trades > 0 else 0
 
-        # Get top scores today
         scored = []
-        for row in today_rows:
-            if len(row) >= 14 and row[12]:
-                try:
-                    scored.append({
-                        "ticker": row[1],
-                        "sector": row[2],
-                        "score": float(row[12]),
-                        "breakdown": row[13] if len(row) > 13 else ""
-                    })
-                except:
-                    continue
-        scored.sort(key=lambda x: x["score"], reverse=True)
-
-        # Get sector averages today
         sector_scores = {}
         sector_counts = {}
+
         for row in today_rows:
-            if len(row) >= 13 and row[2] and row[12]:
-                try:
-                    sector = row[2]
-                    score = float(row[12])
-                    sector_scores[sector] = sector_scores.get(sector, 0) + score
-                    sector_counts[sector] = sector_counts.get(sector, 0) + 1
-                except:
+            try:
+                if len(row) < 13 or not row[1] or not row[2] or not row[12]:
                     continue
-        sector_averages = {s: round(sector_scores[s] / sector_counts[s], 2) for s in sector_scores}
+                score = float(row[12])
+                if score < 0 or score > 10:
+                    continue
+                sector = row[2]
+                ticker = row[1]
+                breakdown = row[13] if len(row) > 13 else ""
+                scored.append({
+                    "ticker": ticker,
+                    "sector": sector,
+                    "score": score,
+                    "breakdown": breakdown
+                })
+                sector_scores[sector] = sector_scores.get(sector, 0) + score
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            except:
+                continue
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        sector_averages = {}
+        for s in sector_scores:
+            if sector_counts[s] > 0:
+                sector_averages[s] = round(sector_scores[s] / sector_counts[s], 2)
         sector_averages = dict(sorted(sector_averages.items(), key=lambda x: x[1], reverse=True))
 
         return {
@@ -93,7 +97,9 @@ def get_portfolio_stats():
             "top_signals": scored[:10],
             "sector_averages": sector_averages
         }
+
     except Exception as e:
+        print(f"Portfolio stats error: {e}")
         return {
             "total_scans": 0,
             "wins": 0,
@@ -103,24 +109,25 @@ def get_portfolio_stats():
             "sector_averages": {}
         }
 
+
 def build_bar(value, max_val=10, width=10):
     try:
-        if max_val == 0 or value != value:  # NaN check
+        if max_val == 0 or value != value:
             return "░" * width
         filled = int((abs(value) / max_val) * width)
         filled = min(filled, width)
         return "█" * filled + "░" * (width - filled)
     except:
         return "░" * width
-    
-def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=100000):
+
+
+def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=10000):
     print("Building report...")
 
     now = datetime.now().strftime("%B %d, %Y %I:%M %p")
     regime = regime_data["regime"]
     regime_score = regime_data["score"]
 
-    # Get additional data
     sector_perf = get_sector_performance()
     stats = get_portfolio_stats()
 
@@ -132,7 +139,7 @@ TRADING BOT DAILY REPORT
 {divider}
 
 MARKET REGIME: {regime} ({regime_score}/5)
-VIX: {regime_data.get('vix', 'N/A'):.1f}  |  SPY: ${regime_data.get('spy', 0):.2f}  |  Breadth: {regime_data.get('breadth', 0):.0f}%
+VIX: {regime_data.get('vix', 0):.1f}  |  SPY: ${regime_data.get('spy', 0):.2f}  |  Breadth: {regime_data.get('breadth', 0):.0f}%
 Rotation: {regime_data.get('rotation', 'N/A')}
 Yield Curve: {regime_data.get('yield_curve', 0):.2f}%
 
@@ -141,19 +148,22 @@ SECTOR PERFORMANCE (20 Day Return)
 {divider}
 """
 
-    for sector, ret in sector_perf.items():
-        bar = build_bar(ret, max_val=15, width=10)
-        direction = "▲ LEADING" if ret > 2 else "▼ LAGGING" if ret < 0 else "→ NEUTRAL"
-        body += f"{sector:<20} {bar}  {ret:+.2f}%  {direction}\n"
+    if sector_perf:
+        for sector, ret in sector_perf.items():
+            bar = build_bar(ret, max_val=15, width=10)
+            direction = "▲ LEADING" if ret > 2 else "▼ LAGGING" if ret < 0 else "→ NEUTRAL"
+            body += f"{sector:<20} {bar}  {ret:>+6.2f}%  {direction}\n"
+    else:
+        body += "Sector data unavailable\n"
 
-    body += f"""
-{divider}
-SECTOR SIGNAL STRENGTH TODAY (Avg Score)
-{divider}
-"""
-    for sector, avg in stats["sector_averages"].items():
-        bar = build_bar(avg, max_val=5, width=10)
-        body += f"{sector:<20} {bar}  {avg}/5.0\n"
+    body += f"\n{divider}\nSECTOR SIGNAL STRENGTH TODAY (Avg Score)\n{divider}\n"
+
+    if stats["sector_averages"]:
+        for sector, avg in stats["sector_averages"].items():
+            bar = build_bar(avg, max_val=5, width=10)
+            body += f"{sector:<20} {bar}  {avg:>4}/5.0\n"
+    else:
+        body += "No scan data for today yet\n"
 
     body += f"""
 {divider}
@@ -177,30 +187,24 @@ TOP SIGNALS TODAY
             body += f"{i:>2}. {s['ticker']:<6} {s['sector']:<20} Score: {s['score']}\n"
             body += f"    {breakdown}\n\n"
     else:
-        body += "No signals logged today yet.\n"
+        body += "No signals logged today yet\n"
 
-    body += f"""
-{divider}
-APPROVED TRADES ({len(approved_trades)})
-{divider}
-"""
+    body += f"\n{divider}\nAPPROVED TRADES ({len(approved_trades)})\n{divider}\n"
+
     if approved_trades:
         for trade in approved_trades:
             body += f"{trade['ticker']} ({trade['sector']})\n"
             body += f"  Score: {trade['score']}/10  |  Position: ${trade['position_size']:,.0f} ({trade['position_pct']}%)\n\n"
     else:
-        body += "No trades meet entry threshold today.\n"
+        body += "No trades meet entry threshold today\n"
 
-    body += f"""
-{divider}
-WATCH LIST
-{divider}
-"""
+    body += f"\n{divider}\nWATCH LIST\n{divider}\n"
+
     if watchlist:
         for s in watchlist[:8]:
             body += f"  {s['ticker']:<6} ({s['sector']})  Score: {s['score']}\n"
     else:
-        body += "No watch list stocks today.\n"
+        body += "No watch list stocks today\n"
 
     body += f"""
 {divider}
@@ -214,7 +218,6 @@ Trading Bot — Automated Report
 Reply YES to approve all trades or specify tickers.
 """
 
-    # Send email
     try:
         msg = MIMEMultipart()
         msg['From'] = NOTIFICATION_EMAIL
@@ -235,6 +238,7 @@ Reply YES to approve all trades or specify tickers.
         print(f"Email error: {e}")
         return False
 
+
 if __name__ == "__main__":
     test_regime = {
         "regime": "BULL",
@@ -247,4 +251,3 @@ if __name__ == "__main__":
         "yield_curve": 0.92
     }
     send_report(test_regime, [], [], [])
-    

@@ -5,6 +5,14 @@ import time
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
+def clean(val):
+    try:
+        if val != val:
+            return 0
+        return round(float(val), 2)
+    except:
+        return 0
+
 print("Starting outcomes.py...")
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -35,8 +43,9 @@ stocks = {
 
 print("Checking market conditions...")
 spy_df = yf.Ticker("SPY").history(period="3mo")
-spy_ma50 = spy_df["Close"].rolling(50).mean().iloc[-1]
-spy_price = spy_df["Close"].iloc[-1]
+spy_closes = spy_df["Close"].dropna()
+spy_ma50 = spy_closes.rolling(50).mean().iloc[-1]
+spy_price = spy_closes.iloc[-1]
 market_uptrend = spy_price > spy_ma50
 market_filter_bonus = 0 if market_uptrend else -2
 print(f"SPY: ${spy_price:.2f} | 50MA: ${spy_ma50:.2f} | {'UPTREND' if market_uptrend else 'DOWNTREND'}")
@@ -45,8 +54,14 @@ print("Fetching sector ETF benchmarks...")
 etf_returns = {}
 for sector, etf in sector_etfs.items():
     try:
-        etf_df = yf.Ticker(etf).history(period="1mo")
-        etf_returns[sector] = (etf_df["Close"].iloc[-1] / etf_df["Close"].iloc[-20] - 1) * 100
+        etf_df = yf.Ticker(etf).history(period="3mo")
+        closes = etf_df["Close"].dropna()
+        if len(closes) < 10:
+            etf_returns[sector] = 0
+            continue
+        lookback = min(20, len(closes) - 1)
+        ret = (closes.iloc[-1] / closes.iloc[-lookback] - 1) * 100
+        etf_returns[sector] = ret if ret == ret else 0
         print(f"{etf} ({sector}): {etf_returns[sector]:.2f}%")
     except:
         etf_returns[sector] = 0
@@ -63,52 +78,64 @@ for sector, tickers in stocks.items():
             if df.empty or len(df) < 200:
                 continue
 
-            delta = df["Close"].diff()
+            closes = df["Close"].dropna()
+            if len(closes) < 200:
+                continue
+
+            delta = closes.diff()
             gain = delta.where(delta > 0, 0).rolling(14).mean()
             loss = -delta.where(delta < 0, 0).rolling(14).mean()
             rs = gain / loss
-            df["RSI"] = 100 - (100 / (1 + rs))
+            rsi_series = 100 - (100 / (1 + rs))
 
-            df["MA20"] = df["Close"].rolling(20).mean()
-            df["BB_upper"] = df["MA20"] + 2 * df["Close"].rolling(20).std()
-            df["BB_lower"] = df["MA20"] - 2 * df["Close"].rolling(20).std()
+            ma20 = closes.rolling(20).mean()
+            bb_upper = ma20 + 2 * closes.rolling(20).std()
+            bb_lower = ma20 - 2 * closes.rolling(20).std()
 
-            df["EMA12"] = df["Close"].ewm(span=12).mean()
-            df["EMA26"] = df["Close"].ewm(span=26).mean()
-            df["MACD"] = df["EMA12"] - df["EMA26"]
-            df["Signal_Line"] = df["MACD"].ewm(span=9).mean()
+            ema12 = closes.ewm(span=12).mean()
+            ema26 = closes.ewm(span=26).mean()
+            macd = ema12 - ema26
+            signal_line = macd.ewm(span=9).mean()
 
-            df["Vol_Avg"] = df["Volume"].rolling(20).mean()
-            df["MA50"] = df["Close"].rolling(50).mean()
-            df["MA200"] = df["Close"].rolling(200).mean()
+            vol_avg = df["Volume"].rolling(20).mean()
+            ma50 = closes.rolling(50).mean()
+            ma200 = closes.rolling(200).mean()
 
-            stock_return = (df["Close"].iloc[-1] / df["Close"].iloc[-20] - 1) * 100
+            price = float(closes.iloc[-1])
+            rsi = float(rsi_series.iloc[-1])
+            macd_val = float(macd.iloc[-1])
+            macd_sig = float(signal_line.iloc[-1])
+            bb_low = float(bb_lower.iloc[-1])
+            bb_up = float(bb_upper.iloc[-1])
+            ma50_val = float(ma50.iloc[-1])
+            ma200_val = float(ma200.iloc[-1])
+            vol_now = float(df["Volume"].iloc[-1])
+            vol_avg_val = float(vol_avg.iloc[-1])
+
+            if any(v != v for v in [price, rsi, macd_val, macd_sig, bb_low, bb_up, ma50_val, ma200_val]):
+                continue
+
+            volume_spike = vol_now > vol_avg_val
+
+            lookback = min(20, len(closes) - 1)
+            stock_return = (closes.iloc[-1] / closes.iloc[-lookback] - 1) * 100
             sector_return = etf_returns.get(sector, 0)
-            rel_strength = stock_return - sector_return
-
-            latest = df.iloc[-1]
-            price = latest["Close"]
-            rsi = latest["RSI"]
-            macd = latest["MACD"]
-            macd_signal = latest["Signal_Line"]
-            bb_lower = latest["BB_lower"]
-            bb_upper = latest["BB_upper"]
-            ma50 = latest["MA50"]
-            ma200 = latest["MA200"]
-            volume_spike = latest["Volume"] > latest["Vol_Avg"]
+            rel_strength = float(stock_return) - float(sector_return)
+            if rel_strength != rel_strength:
+                rel_strength = 0
 
             mr_score = 0
             if rsi < 35:
                 mr_score += 0.5
-            if price <= bb_lower:
+            if price <= bb_low:
                 mr_score += 0.5
-            if macd > macd_signal:
+            if macd_val > macd_sig:
                 mr_score += 0.5
 
             trend_score = 0
-            if ma50 > ma200:
+            if ma50_val > ma200_val:
                 trend_score += 1.0
-            if price > ma50:
+            if price > ma50_val:
                 trend_score += 1.0
 
             sector_score = 0
@@ -125,31 +152,28 @@ for sector, tickers in stocks.items():
 
             breakdown = f"Trend:{trend_score}|Sector:{sector_score}|MeanRev:{mr_score}|Vol:{vol_score}|Inst:{institutional_score}"
 
+            bb_signal = "BELOW BB" if price <= bb_low else "ABOVE BB" if price >= bb_up else "Neutral"
+            vol_signal = "HIGH" if volume_spike else "Normal"
+
             scan_log.append_row([
                 now, ticker, sector,
-                round(price, 2),
-                round(rsi, 2),
-                "BELOW BB" if price <= bb_lower else "ABOVE BB" if price >= bb_upper else "Neutral",
-                "HIGH" if volume_spike else "Normal",
-                round(trend_score, 2),
-                round(sector_score, 2),
-                round(mr_score, 2),
-                round(vol_score, 2),
-                round(institutional_score, 2),
-                round(score, 2),
+                clean(price), clean(rsi),
+                bb_signal, vol_signal,
+                clean(trend_score), clean(sector_score),
+                clean(mr_score), clean(vol_score),
+                clean(institutional_score), clean(score),
                 breakdown
             ])
 
             outcomes.append_row([
                 now, ticker, sector,
-                round(price, 2),
-                round(score, 2),
+                clean(price), clean(score),
                 "", "", "", "", ""
             ])
 
             logged += 1
             print(f"{ticker} ({sector}): ${price:.2f} | RSI: {rsi:.1f} | Score: {score} | {breakdown}")
-            time.sleep(2.5)
+            time.sleep(1.75)
 
         except Exception as e:
             print(f"{ticker}: skipped — {e}")
