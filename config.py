@@ -19,3 +19,12 @@ SECTORS = {"Energy":"XLE","Infrastructure":"PAVE","Finance":"XLF","Health":"XLV"
 
 NOTIFICATION_EMAIL = "mrrjw3408@gmail.com"
 GMAIL_APP_PASSWORD = "ahsf xuyv juvj gnmv"
+
+TICKERS = {
+    "Energy": ["XOM","CVX","COP","EOG","SLB","MPC","PSX","VLO","OXY","HAL","BKR","DVN","WMB","OKE","KMI","LNG","ET","EPD","PAA","TRGP","MPLX","ENB","TRP","NRG","AES","EXC","NEE","DUK","SO","ED","PCG","ETR","XEL","WEC","ES","CMS","NI","ATO"],
+    "Infrastructure": ["UNP","CSX","NSC","CP","CNI","WAB","GWW","PWR","MTZ","EME","ACM","FLR","KBR","TTEK","VMC","MLM","EXP","AWK","AMT","CCI","SBAC","DLR","EQIX","PLD","PSA","EXR","CUBE","REXR","FR","EGP","STAG","LXP","TRNO","MSEX","CWT","SJW","YORW","ARTNA"],
+    "Finance": ["JPM","BAC","WFC","GS","MS","C","BLK","SCHW","AXP","COF","USB","PNC","TFC","BK","STT","MTB","CFG","HBAN","RF","KEY","FITB","ZION","CMA","V","MA","PYPL","FIS","FISV","GPN","DFS","BOKF","FFIN","WBS","UMBF","IBOC","CVBF","WAFD","TCBI"],
+    "Health": ["JNJ","UNH","PFE","ABT","TMO","MRK","DHR","BMY","AMGN","GILD","CVS","CI","HUM","CNC","MOH","ELV","HCA","THC","UHS","ISRG","SYK","BSX","MDT","ZBH","EW","HOLX","DXCM","LLY","BIIB","REGN","VRTX","IQV","CRL","MEDP","ICLR","EVH","MMSI","NVCR","FATE"],
+    "Semiconductors": ["NVDA","AMD","INTC","QCOM","AVGO","TXN","MU","AMAT","LRCX","KLAC","ASML","TSM","ARM","MRVL","ADI","NXPI","ON","SWKS","QRVO","MPWR","WOLF","SITM","AMBA","ALGM","DIOD","FORM","ACLS","ONTO","UCTT","COHU","ICHR","MTSI","AXTI","PDFS","CEVA","SLAB","TSEM","UMC"],
+    "Backdoor Tech": ["CSCO","FFIV","NTAP","PSTG","HPE","DELL","STX","WDC","T","VZ","TMUS","LUMN","CRWD","PANW","FTNT","ZS","OKTA","S","TENB","RPD","VRNS","QLYS","ETN","CARR","TT","JCI","GTLS","VICR","CTS","LFUS","NOVT","CABO","SHEN","ITRN","AWR","OTIS"]
+}

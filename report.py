@@ -37,6 +37,7 @@ def get_sector_performance():
             continue
     return dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
 
+
 def get_portfolio_stats():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -110,120 +111,270 @@ def get_portfolio_stats():
         }
 
 
-def build_bar(value, max_val=10, width=10):
+def regime_color(regime):
+    if regime == "BULL":
+        return "#27ae60"
+    elif regime == "BEAR":
+        return "#e74c3c"
+    return "#f39c12"
+
+
+def score_color(score):
+    if score >= 4:
+        return "#27ae60"
+    elif score >= 2.5:
+        return "#f39c12"
+    return "#e74c3c"
+
+
+def ret_color(ret):
+    if ret > 2:
+        return "#27ae60"
+    elif ret < 0:
+        return "#e74c3c"
+    return "#f39c12"
+
+
+def bar_html(value, max_val=5, width=100):
     try:
-        if max_val == 0 or value != value:
-            return "░" * width
-        filled = int((abs(value) / max_val) * width)
-        filled = min(filled, width)
-        return "█" * filled + "░" * (width - filled)
+        if value != value or max_val == 0:
+            return ""
+        pct = min(abs(value) / max_val * width, width)
+        color = "#27ae60" if value >= 0 else "#e74c3c"
+        return f'<div style="background:#2c2c2c;border-radius:4px;height:8px;width:{width}px;display:inline-block;vertical-align:middle;"><div style="background:{color};height:8px;border-radius:4px;width:{pct:.0f}px;"></div></div>'
     except:
-        return "░" * width
+        return ""
 
 
 def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=10000):
-    print("Building report...")
+    print("Building HTML report...")
 
     now = datetime.now().strftime("%B %d, %Y %I:%M %p")
     regime = regime_data["regime"]
     regime_score = regime_data["score"]
+    rcolor = regime_color(regime)
 
     sector_perf = get_sector_performance()
     stats = get_portfolio_stats()
 
-    divider = "━" * 49
+    # Sector performance rows
+    sector_perf_rows = ""
+    for sector, ret in sector_perf.items():
+        rc = ret_color(ret)
+        direction = "▲ Leading" if ret > 2 else "▼ Lagging" if ret < 0 else "→ Neutral"
+        bar = bar_html(ret, max_val=15)
+        sector_perf_rows += f"""
+        <tr>
+            <td style="padding:8px 12px;color:#ccc;font-size:13px;">{sector}</td>
+            <td style="padding:8px 12px;">{bar}</td>
+            <td style="padding:8px 12px;color:{rc};font-weight:600;font-size:13px;">{ret:+.2f}%</td>
+            <td style="padding:8px 12px;color:{rc};font-size:12px;">{direction}</td>
+        </tr>"""
 
-    body = f"""
-TRADING BOT DAILY REPORT
-{now}
-{divider}
+    # Sector signal strength rows
+    sector_signal_rows = ""
+    for sector, avg in stats["sector_averages"].items():
+        sc = score_color(avg)
+        bar = bar_html(avg, max_val=5)
+        sector_signal_rows += f"""
+        <tr>
+            <td style="padding:8px 12px;color:#ccc;font-size:13px;">{sector}</td>
+            <td style="padding:8px 12px;">{bar}</td>
+            <td style="padding:8px 12px;color:{sc};font-weight:600;font-size:13px;">{avg}/5.0</td>
+        </tr>"""
 
-MARKET REGIME: {regime} ({regime_score}/5)
-VIX: {regime_data.get('vix', 0):.1f}  |  SPY: ${regime_data.get('spy', 0):.2f}  |  Breadth: {regime_data.get('breadth', 0):.0f}%
-Rotation: {regime_data.get('rotation', 'N/A')}
-Yield Curve: {regime_data.get('yield_curve', 0):.2f}%
+    if not sector_signal_rows:
+        sector_signal_rows = '<tr><td colspan="3" style="padding:12px;color:#666;font-size:13px;">No scan data yet today</td></tr>'
 
-{divider}
-SECTOR PERFORMANCE (20 Day Return)
-{divider}
-"""
+    # Top signals rows
+    signal_rows = ""
+    for i, s in enumerate(stats["top_signals"][:10], 1):
+        sc = score_color(s["score"])
+        breakdown = s["breakdown"].replace("|", "  &nbsp;|&nbsp;  ")
+        signal_rows += f"""
+        <tr style="border-bottom:1px solid #2a2a2a;">
+            <td style="padding:10px 12px;color:#aaa;font-size:12px;">{i}</td>
+            <td style="padding:10px 12px;color:#fff;font-weight:600;font-size:14px;">{s['ticker']}</td>
+            <td style="padding:10px 12px;color:#aaa;font-size:12px;">{s['sector']}</td>
+            <td style="padding:10px 12px;color:{sc};font-weight:700;font-size:14px;">{s['score']}</td>
+            <td style="padding:10px 12px;color:#666;font-size:11px;">{breakdown}</td>
+        </tr>"""
 
-    if sector_perf:
-        for sector, ret in sector_perf.items():
-            bar = build_bar(ret, max_val=15, width=10)
-            direction = "▲ LEADING" if ret > 2 else "▼ LAGGING" if ret < 0 else "→ NEUTRAL"
-            body += f"{sector:<20} {bar}  {ret:>+6.2f}%  {direction}\n"
-    else:
-        body += "Sector data unavailable\n"
+    if not signal_rows:
+        signal_rows = '<tr><td colspan="5" style="padding:12px;color:#666;font-size:13px;">No signals logged today yet</td></tr>'
 
-    body += f"\n{divider}\nSECTOR SIGNAL STRENGTH TODAY (Avg Score)\n{divider}\n"
+    # Approved trades rows
+    trade_rows = ""
+    for trade in approved_trades:
+        sc = score_color(trade["score"])
+        trade_rows += f"""
+        <tr style="border-bottom:1px solid #2a2a2a;">
+            <td style="padding:10px 12px;color:#fff;font-weight:600;">{trade['ticker']}</td>
+            <td style="padding:10px 12px;color:#aaa;font-size:12px;">{trade['sector']}</td>
+            <td style="padding:10px 12px;color:{sc};font-weight:700;">{trade['score']}/10</td>
+            <td style="padding:10px 12px;color:#27ae60;font-weight:600;">${trade['position_size']:,.0f}</td>
+            <td style="padding:10px 12px;color:#aaa;font-size:12px;">{trade['position_pct']}%</td>
+        </tr>"""
 
-    if stats["sector_averages"]:
-        for sector, avg in stats["sector_averages"].items():
-            bar = build_bar(avg, max_val=5, width=10)
-            body += f"{sector:<20} {bar}  {avg:>4}/5.0\n"
-    else:
-        body += "No scan data for today yet\n"
+    if not trade_rows:
+        trade_rows = '<tr><td colspan="5" style="padding:12px;color:#666;font-size:13px;">No trades meet entry threshold today</td></tr>'
 
-    body += f"""
-{divider}
-PORTFOLIO PERFORMANCE
-{divider}
-Portfolio Value:    ${portfolio_value:>12,.0f}
-Open Positions:     {len(approved_trades):>12}
-Stocks Scanned:     {stats['total_scans']:>12}
-Completed Trades:   {stats['wins'] + stats['losses']:>12}
-Win Rate:           {stats['win_rate']:>11}%
-Wins / Losses:      {stats['wins']:>5}W / {stats['losses']}L
+    # Watchlist
+    watch_items = ""
+    for s in watchlist[:8]:
+        sc = score_color(s["score"])
+        watch_items += f'<span style="display:inline-block;background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:6px 12px;margin:4px;color:{sc};font-size:13px;font-weight:600;">{s["ticker"]} {s["score"]}</span>'
 
-{divider}
-TOP SIGNALS TODAY
-{divider}
-"""
+    if not watch_items:
+        watch_items = '<span style="color:#666;font-size:13px;">No watch list stocks today</span>'
 
-    if stats["top_signals"]:
-        for i, s in enumerate(stats["top_signals"][:10], 1):
-            breakdown = s['breakdown'].replace('|', '  ')
-            body += f"{i:>2}. {s['ticker']:<6} {s['sector']:<20} Score: {s['score']}\n"
-            body += f"    {breakdown}\n\n"
-    else:
-        body += "No signals logged today yet\n"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#0f0f0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="max-width:700px;margin:0 auto;padding:24px;">
 
-    body += f"\n{divider}\nAPPROVED TRADES ({len(approved_trades)})\n{divider}\n"
+  <!-- Header -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:24px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">Trading Bot Report</h1>
+        <p style="margin:6px 0 0;color:#666;font-size:13px;">{now}</p>
+      </div>
+      <div style="text-align:right;">
+        <span style="background:{rcolor};color:#fff;padding:6px 16px;border-radius:20px;font-size:13px;font-weight:700;">{regime} REGIME</span>
+        <p style="margin:6px 0 0;color:#666;font-size:12px;">{regime_score}/5 signals bullish</p>
+      </div>
+    </div>
 
-    if approved_trades:
-        for trade in approved_trades:
-            body += f"{trade['ticker']} ({trade['sector']})\n"
-            body += f"  Score: {trade['score']}/10  |  Position: ${trade['position_size']:,.0f} ({trade['position_pct']}%)\n\n"
-    else:
-        body += "No trades meet entry threshold today\n"
+    <!-- Regime indicators -->
+    <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;">
+      <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
+        <p style="margin:0;color:#666;font-size:11px;">VIX</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:16px;font-weight:700;">{regime_data.get('vix', 0):.1f}</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
+        <p style="margin:0;color:#666;font-size:11px;">SPY</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:16px;font-weight:700;">${regime_data.get('spy', 0):.2f}</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
+        <p style="margin:0;color:#666;font-size:11px;">Breadth</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:16px;font-weight:700;">{regime_data.get('breadth', 0):.0f}%</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
+        <p style="margin:0;color:#666;font-size:11px;">Yield Curve</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:16px;font-weight:700;">{regime_data.get('yield_curve', 0):.2f}%</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
+        <p style="margin:0;color:#666;font-size:11px;">Portfolio</p>
+        <p style="margin:4px 0 0;color:#27ae60;font-size:16px;font-weight:700;">${portfolio_value:,.0f}</p>
+      </div>
+    </div>
+  </div>
 
-    body += f"\n{divider}\nWATCH LIST\n{divider}\n"
+  <!-- Portfolio Stats -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Portfolio Performance</h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="background:#111;border-radius:8px;padding:12px 16px;flex:1;min-width:80px;text-align:center;">
+        <p style="margin:0;color:#666;font-size:11px;">Scanned</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:20px;font-weight:700;">{stats['total_scans']}</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:12px 16px;flex:1;min-width:80px;text-align:center;">
+        <p style="margin:0;color:#666;font-size:11px;">Win Rate</p>
+        <p style="margin:4px 0 0;color:#27ae60;font-size:20px;font-weight:700;">{stats['win_rate']}%</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:12px 16px;flex:1;min-width:80px;text-align:center;">
+        <p style="margin:0;color:#666;font-size:11px;">Wins</p>
+        <p style="margin:4px 0 0;color:#27ae60;font-size:20px;font-weight:700;">{stats['wins']}</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:12px 16px;flex:1;min-width:80px;text-align:center;">
+        <p style="margin:0;color:#666;font-size:11px;">Losses</p>
+        <p style="margin:4px 0 0;color:#e74c3c;font-size:20px;font-weight:700;">{stats['losses']}</p>
+      </div>
+      <div style="background:#111;border-radius:8px;padding:12px 16px;flex:1;min-width:80px;text-align:center;">
+        <p style="margin:0;color:#666;font-size:11px;">Open</p>
+        <p style="margin:4px 0 0;color:#fff;font-size:20px;font-weight:700;">{len(approved_trades)}</p>
+      </div>
+    </div>
+  </div>
 
-    if watchlist:
-        for s in watchlist[:8]:
-            body += f"  {s['ticker']:<6} ({s['sector']})  Score: {s['score']}\n"
-    else:
-        body += "No watch list stocks today\n"
+  <!-- Sector Performance -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Sector Performance <span style="color:#666;font-size:12px;font-weight:400;">(20 Day Return)</span></h2>
+    <table style="width:100%;border-collapse:collapse;">
+      {sector_perf_rows if sector_perf_rows else '<tr><td style="color:#666;padding:12px;">Sector data unavailable</td></tr>'}
+    </table>
+  </div>
 
-    body += f"""
-{divider}
-NEWS & CATALYSTS
-{divider}
-[News agent coming in Phase 3]
-Earnings calendar integration coming soon.
-{divider}
+  <!-- Sector Signal Strength -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Sector Signal Strength <span style="color:#666;font-size:12px;font-weight:400;">(Avg Score Today)</span></h2>
+    <table style="width:100%;border-collapse:collapse;">
+      {sector_signal_rows}
+    </table>
+  </div>
 
-Trading Bot — Automated Report
-Reply YES to approve all trades or specify tickers.
+  <!-- Top Signals -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Top Signals Today</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr style="border-bottom:1px solid #2a2a2a;">
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">#</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Ticker</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Sector</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Score</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Breakdown</th>
+      </tr>
+      {signal_rows}
+    </table>
+  </div>
+
+  <!-- Approved Trades -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Approved Trades <span style="color:#666;font-size:12px;font-weight:400;">({len(approved_trades)} today)</span></h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr style="border-bottom:1px solid #2a2a2a;">
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Ticker</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Sector</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Score</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Position</th>
+        <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">% of Portfolio</th>
+      </tr>
+      {trade_rows}
+    </table>
+  </div>
+
+  <!-- Watch List -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 12px;color:#fff;font-size:15px;font-weight:600;">Watch List</h2>
+    <div>{watch_items}</div>
+  </div>
+
+  <!-- News placeholder -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 8px;color:#fff;font-size:15px;font-weight:600;">News & Catalysts</h2>
+    <p style="margin:0;color:#444;font-size:13px;">News agent coming in Phase 3 — earnings calendar integration coming soon.</p>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:16px;">
+    <p style="color:#444;font-size:12px;margin:0;">Trading Bot — Automated Report | Reply YES to approve all trades</p>
+  </div>
+
+</div>
+</body>
+</html>
 """
 
     try:
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("alternative")
         msg['From'] = NOTIFICATION_EMAIL
         msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = f"Trading Bot | {regime} Regime | {len(stats['top_signals'])} Signals | {now}"
-        msg.attach(MIMEText(body, 'plain'))
+        msg['Subject'] = f"Trading Bot | {regime} {regime_score}/5 | {len(stats['top_signals'])} Signals | {now}"
+
+        msg.attach(MIMEText(html, 'html'))
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -231,7 +382,7 @@ Reply YES to approve all trades or specify tickers.
         server.send_message(msg)
         server.quit()
 
-        print(f"Report sent to {NOTIFICATION_EMAIL}")
+        print(f"HTML report sent to {NOTIFICATION_EMAIL}")
         return True
 
     except Exception as e:
@@ -251,3 +402,4 @@ if __name__ == "__main__":
         "yield_curve": 0.92
     }
     send_report(test_regime, [], [], [])
+    

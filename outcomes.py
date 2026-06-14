@@ -147,9 +147,19 @@ for sector, tickers in stocks.items():
             vol_score = 0.5 if volume_spike else 0
             institutional_score = 0
 
-            score = mr_score + trend_score + sector_score + vol_score + institutional_score
-            score = round(min(max(score + market_filter_bonus, 0), 10), 2)
+            if rsi < 40 and price <= bb_low:
+            trade_mode = "MEAN_REVERSION"
+            weighted_score = (mr_score * 1.5) + (trend_score * 0.5) + sector_score + vol_score + institutional_score
+            elif ma50_val > ma200_val and price > ma50_val:
+                trade_mode = "MOMENTUM"
+                weighted_score = (mr_score * 0.5) + (trend_score * 1.5) + sector_score + vol_score + institutional_score
+            else:
+               trade_mode = "NEUTRAL"
+               weighted_score = mr_score + trend_score + sector_score + vol_score + institutional_score
 
+            score = weighted_score
+            score = round(min(max(score + market_filter_bonus, 0), 10), 2)
+  
             breakdown = f"Trend:{trend_score}|Sector:{sector_score}|MeanRev:{mr_score}|Vol:{vol_score}|Inst:{institutional_score}"
 
             bb_signal = "BELOW BB" if price <= bb_low else "ABOVE BB" if price >= bb_up else "Neutral"
