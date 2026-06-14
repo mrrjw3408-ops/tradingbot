@@ -146,7 +146,72 @@ def bar_html(value, max_val=5, width=100):
         return ""
 
 
-def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=10000):
+def build_options_html(options_trades, options_summary):
+    if not options_trades and not options_summary:
+        return '<p style="color:#444;font-size:13px;">No options trades today</p>'
+
+    html = ""
+
+    if options_summary and options_summary.get("closed", 0) > 0:
+        pnl = options_summary.get("total_pnl", 0)
+        pnl_color = "#27ae60" if pnl >= 0 else "#e74c3c"
+        html += f"""
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+            <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;text-align:center;">
+                <p style="margin:0;color:#666;font-size:11px;">Win Rate</p>
+                <p style="margin:4px 0 0;color:#27ae60;font-size:18px;font-weight:700;">{options_summary.get('win_rate', 0)}%</p>
+            </div>
+            <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;text-align:center;">
+                <p style="margin:0;color:#666;font-size:11px;">Total P&L</p>
+                <p style="margin:4px 0 0;color:{pnl_color};font-size:18px;font-weight:700;">${pnl:+,.2f}</p>
+            </div>
+            <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;text-align:center;">
+                <p style="margin:0;color:#666;font-size:11px;">Open</p>
+                <p style="margin:4px 0 0;color:#fff;font-size:18px;font-weight:700;">{options_summary.get('open', 0)}</p>
+            </div>
+            <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;text-align:center;">
+                <p style="margin:0;color:#666;font-size:11px;">Closed</p>
+                <p style="margin:4px 0 0;color:#fff;font-size:18px;font-weight:700;">{options_summary.get('closed', 0)}</p>
+            </div>
+        </div>"""
+
+    if options_trades:
+        html += '<table style="width:100%;border-collapse:collapse;">'
+        html += '''<tr style="border-bottom:1px solid #2a2a2a;">
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Ticker</th>
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Strategy</th>
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Spread</th>
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Credit</th>
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">ROR</th>
+            <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Confidence</th>
+        </tr>'''
+
+        for trade in options_trades:
+            spread = trade["spread"]
+            conf_color = "#27ae60" if trade["confidence"] == "HIGH" else "#f39c12" if trade["confidence"] == "MEDIUM" else "#e74c3c"
+            if trade["strategy"] == "SELL_PUT_SPREAD":
+                spread_desc = f"Sell ${spread['short_strike']}P / Buy ${spread['long_strike']}P"
+                credit = f"+${spread['net_credit']}"
+            else:
+                spread_desc = f"Buy ${spread['long_strike']}C / Sell ${spread['short_strike']}C"
+                credit = f"-${spread['net_debit']}"
+
+            html += f'''<tr style="border-bottom:1px solid #2a2a2a;">
+                <td style="padding:10px 12px;color:#fff;font-weight:600;">{trade['ticker']}</td>
+                <td style="padding:10px 12px;color:#aaa;font-size:12px;">{trade['strategy'].replace('_', ' ')}</td>
+                <td style="padding:10px 12px;color:#aaa;font-size:12px;">{spread_desc}</td>
+                <td style="padding:10px 12px;color:#27ae60;font-weight:600;">{credit}</td>
+                <td style="padding:10px 12px;color:#aaa;font-size:12px;">{spread['return_on_risk']}%</td>
+                <td style="padding:10px 12px;color:{conf_color};font-weight:600;">{trade['confidence']}</td>
+            </tr>'''
+        html += '</table>'
+    else:
+        html += '<p style="color:#666;font-size:13px;">No new options trades today</p>'
+
+    return html
+
+
+def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=10000, options_trades=None, options_summary=None):
     print("Building HTML report...")
 
     now = datetime.now().strftime("%B %d, %Y %I:%M %p")
@@ -156,8 +221,8 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
 
     sector_perf = get_sector_performance()
     stats = get_portfolio_stats()
+    options_html = build_options_html(options_trades or [], options_summary or {})
 
-    # Sector performance rows
     sector_perf_rows = ""
     for sector, ret in sector_perf.items():
         rc = ret_color(ret)
@@ -171,7 +236,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
             <td style="padding:8px 12px;color:{rc};font-size:12px;">{direction}</td>
         </tr>"""
 
-    # Sector signal strength rows
     sector_signal_rows = ""
     for sector, avg in stats["sector_averages"].items():
         sc = score_color(avg)
@@ -186,7 +250,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     if not sector_signal_rows:
         sector_signal_rows = '<tr><td colspan="3" style="padding:12px;color:#666;font-size:13px;">No scan data yet today</td></tr>'
 
-    # Top signals rows
     signal_rows = ""
     for i, s in enumerate(stats["top_signals"][:10], 1):
         sc = score_color(s["score"])
@@ -203,7 +266,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     if not signal_rows:
         signal_rows = '<tr><td colspan="5" style="padding:12px;color:#666;font-size:13px;">No signals logged today yet</td></tr>'
 
-    # Approved trades rows
     trade_rows = ""
     for trade in approved_trades:
         sc = score_color(trade["score"])
@@ -219,7 +281,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     if not trade_rows:
         trade_rows = '<tr><td colspan="5" style="padding:12px;color:#666;font-size:13px;">No trades meet entry threshold today</td></tr>'
 
-    # Watchlist
     watch_items = ""
     for s in watchlist[:8]:
         sc = score_color(s["score"])
@@ -235,7 +296,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
 <body style="margin:0;padding:0;background:#0f0f0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <div style="max-width:700px;margin:0 auto;padding:24px;">
 
-  <!-- Header -->
   <div style="background:#1a1a1a;border-radius:12px;padding:24px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <div>
@@ -247,8 +307,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
         <p style="margin:6px 0 0;color:#666;font-size:12px;">{regime_score}/5 signals bullish</p>
       </div>
     </div>
-
-    <!-- Regime indicators -->
     <div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;">
       <div style="background:#111;border-radius:8px;padding:10px 16px;flex:1;min-width:100px;">
         <p style="margin:0;color:#666;font-size:11px;">VIX</p>
@@ -273,7 +331,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </div>
   </div>
 
-  <!-- Portfolio Stats -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Portfolio Performance</h2>
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -300,7 +357,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </div>
   </div>
 
-  <!-- Sector Performance -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Sector Performance <span style="color:#666;font-size:12px;font-weight:400;">(20 Day Return)</span></h2>
     <table style="width:100%;border-collapse:collapse;">
@@ -308,7 +364,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </table>
   </div>
 
-  <!-- Sector Signal Strength -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Sector Signal Strength <span style="color:#666;font-size:12px;font-weight:400;">(Avg Score Today)</span></h2>
     <table style="width:100%;border-collapse:collapse;">
@@ -316,7 +371,6 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </table>
   </div>
 
-  <!-- Top Signals -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Top Signals Today</h2>
     <table style="width:100%;border-collapse:collapse;">
@@ -331,9 +385,8 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </table>
   </div>
 
-  <!-- Approved Trades -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
-    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Approved Trades <span style="color:#666;font-size:12px;font-weight:400;">({len(approved_trades)} today)</span></h2>
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Approved Stock Signals <span style="color:#666;font-size:12px;font-weight:400;">({len(approved_trades)} today)</span></h2>
     <table style="width:100%;border-collapse:collapse;">
       <tr style="border-bottom:1px solid #2a2a2a;">
         <th style="padding:8px 12px;color:#666;font-size:11px;text-align:left;">Ticker</th>
@@ -346,19 +399,21 @@ def send_report(regime_data, strong_signals, watchlist, approved_trades, portfol
     </table>
   </div>
 
-  <!-- Watch List -->
+  <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
+    <h2 style="margin:0 0 16px;color:#fff;font-size:15px;font-weight:600;">Paper Options Trades</h2>
+    {options_html}
+  </div>
+
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 12px;color:#fff;font-size:15px;font-weight:600;">Watch List</h2>
     <div>{watch_items}</div>
   </div>
 
-  <!-- News placeholder -->
   <div style="background:#1a1a1a;border-radius:12px;padding:20px;margin-bottom:16px;border:1px solid #2a2a2a;">
     <h2 style="margin:0 0 8px;color:#fff;font-size:15px;font-weight:600;">News & Catalysts</h2>
     <p style="margin:0;color:#444;font-size:13px;">News agent coming in Phase 3 — earnings calendar integration coming soon.</p>
   </div>
 
-  <!-- Footer -->
   <div style="text-align:center;padding:16px;">
     <p style="color:#444;font-size:12px;margin:0;">Trading Bot — Automated Report | Reply YES to approve all trades</p>
   </div>
