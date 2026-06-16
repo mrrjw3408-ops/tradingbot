@@ -4,6 +4,10 @@ import gspread
 import time
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from config import TICKERS
 
 def clean(val):
     try:
@@ -32,14 +36,7 @@ sector_etfs = {
     "Backdoor Tech": "XLK"
 }
 
-stocks = {
-    "Energy": ["XOM","CVX","COP","EOG","SLB","MPC","PSX","VLO","OXY","HAL","BKR","DVN","WMB","OKE","KMI","LNG","ET","EPD","PAA","TRGP","MPLX","ENB","TRP","NRG","AES","EXC","NEE","DUK","SO","ED","PCG","ETR","XEL","WEC","ES","CMS","NI","ATO"],
-    "Infrastructure": ["UNP","CSX","NSC","CP","CNI","WAB","GWW","PWR","MTZ","EME","ACM","FLR","KBR","TTEK","VMC","MLM","EXP","AWK","AMT","CCI","SBAC","DLR","EQIX","PLD","PSA","EXR","CUBE","REXR","FR","EGP","STAG","LXP","TRNO","MSEX","CWT","SJW","YORW","ARTNA"],
-    "Finance": ["JPM","BAC","WFC","GS","MS","C","BLK","SCHW","AXP","COF","USB","PNC","TFC","BK","STT","MTB","CFG","HBAN","RF","KEY","FITB","ZION","CMA","V","MA","PYPL","FIS","FISV","GPN","DFS","BOKF","FFIN","WBS","UMBF","IBOC","CVBF","WAFD","TCBI"],
-    "Health": ["JNJ","UNH","PFE","ABT","TMO","MRK","DHR","BMY","AMGN","GILD","CVS","CI","HUM","CNC","MOH","ELV","HCA","THC","UHS","ISRG","SYK","BSX","MDT","ZBH","EW","HOLX","DXCM","LLY","BIIB","REGN","VRTX","IQV","CRL","MEDP","ICLR","EVH","MMSI","NVCR","FATE"],
-    "Semiconductors": ["NVDA","AMD","INTC","QCOM","AVGO","TXN","MU","AMAT","LRCX","KLAC","ASML","TSM","ARM","MRVL","ADI","NXPI","ON","SWKS","QRVO","MPWR","WOLF","SITM","AMBA","ALGM","DIOD","FORM","ACLS","ONTO","UCTT","COHU","ICHR","MTSI","AXTI","PDFS","CEVA","SLAB","TSEM","UMC"],
-    "Backdoor Tech": ["CSCO","FFIV","NTAP","PSTG","HPE","DELL","STX","WDC","T","VZ","TMUS","LUMN","CRWD","PANW","FTNT","ZS","OKTA","S","TENB","RPD","VRNS","QLYS","ETN","CARR","TT","JCI","GTLS","VICR","CTS","LFUS","NOVT","CABO","SHEN","ITRN","AWR","OTIS"]
-}
+stocks = TICKERS
 
 print("Checking market conditions...")
 spy_df = yf.Ticker("SPY").history(period="3mo")
@@ -148,8 +145,8 @@ for sector, tickers in stocks.items():
             institutional_score = 0
 
             if rsi < 40 and price <= bb_low:
-            trade_mode = "MEAN_REVERSION"
-            weighted_score = (mr_score * 1.5) + (trend_score * 0.5) + sector_score + vol_score + institutional_score
+                trade_mode = "MEAN_REVERSION"
+                weighted_score = (mr_score * 1.5) + (trend_score * 0.5) + sector_score + vol_score + institutional_score
             elif ma50_val > ma200_val and price > ma50_val:
                 trade_mode = "MOMENTUM"
                 weighted_score = (mr_score * 0.5) + (trend_score * 1.5) + sector_score + vol_score + institutional_score
