@@ -3,8 +3,8 @@ name: Trading Bot Scanner
 on:
   schedule:
     - cron: '0 14 * * 1-5'    # 9:00 AM CST
-    - cron: '0 18 * * 1-5'    # 12:00 PM CST
-    - cron: '30 22 * * 1-5'   # 4:30 PM CST
+    - cron: '0 17 * * 1-5'    # 12:00 PM CST
+    - cron: '30 21 * * 1-5'   # 4:30 PM CST
   workflow_dispatch:
 
 jobs:

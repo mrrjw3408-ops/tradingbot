@@ -214,7 +214,9 @@ def build_options_html(options_trades, options_summary):
 def send_report(regime_data, strong_signals, watchlist, approved_trades, portfolio_value=10000, options_trades=None, options_summary=None):
     print("Building HTML report...")
 
-    now = datetime.now().strftime("%B %d, %Y %I:%M %p")
+    from datetime import timezone, timedelta
+    cst = timezone(timedelta(hours=-5))
+    now = datetime.now(cst).strftime("%B %d, %Y %I:%M %p CST")
     regime = regime_data["regime"]
     regime_score = regime_data["score"]
     rcolor = regime_color(regime)
