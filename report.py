@@ -12,29 +12,25 @@ from config import NOTIFICATION_EMAIL, GMAIL_APP_PASSWORD
 
 
 def get_sector_performance():
-    sector_etfs = {
-        "Semiconductors": "SOXX",
-        "Backdoor Tech": "XLK",
-        "Health": "XLV",
-        "Finance": "XLF",
-        "Energy": "XLE",
-        "Infrastructure": "PAVE"
-    }
+    import time as _time
+    from config import SECTORS as sector_etfs
     results = {}
     for sector, etf in sector_etfs.items():
-        try:
-            df = yf.Ticker(etf).history(period="3mo")
-            closes = df["Close"].dropna()
-            if len(closes) < 10:
-                continue
-            lookback = min(20, len(closes) - 1)
-            last = closes.iloc[-1]
-            prev = closes.iloc[-lookback]
-            if last > 0 and prev > 0:
-                ret = round((last / prev - 1) * 100, 2)
-                results[sector] = ret
-        except:
-            continue
+        for attempt in range(3):
+            try:
+                df = yf.Ticker(etf).history(period="3mo")
+                closes = df["Close"].dropna()
+                if len(closes) < 10:
+                    raise ValueError("insufficient data")
+                lookback = min(20, len(closes) - 1)
+                last = closes.iloc[-1]
+                prev = closes.iloc[-lookback]
+                if last > 0 and prev > 0:
+                    ret = round((last / prev - 1) * 100, 2)
+                    results[sector] = ret
+                break
+            except Exception:
+                _time.sleep(1.5)
     return dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
 
 

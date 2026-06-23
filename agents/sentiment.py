@@ -5,32 +5,43 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import VIX_LOW, VIX_HIGH, BREADTH_BULL, BREADTH_BEAR, YIELD_CURVE_FLAT, SECTORS
 
 def get_vix_score():
-    try:
-        vix = yf.Ticker("^VIX")
-        vix_price = vix.fast_info.last_price
-        if vix_price < VIX_LOW:
-            return 1, vix_price, "BULLISH"
-        elif vix_price > VIX_HIGH:
-            return -1, vix_price, "BEARISH"
-        else:
-            return 0, vix_price, "NEUTRAL"
-    except:
-        return 0, 0, "UNKNOWN"
+    for attempt in range(3):
+        try:
+            vix = yf.Ticker("^VIX")
+            vix_price = vix.fast_info.last_price
+            if not vix_price or vix_price != vix_price or vix_price <= 0:
+                raise ValueError("bad VIX price")
+            if vix_price < VIX_LOW:
+                return 1, vix_price, "BULLISH"
+            elif vix_price > VIX_HIGH:
+                return -1, vix_price, "BEARISH"
+            else:
+                return 0, vix_price, "NEUTRAL"
+        except Exception:
+            time.sleep(2)
+    return 0, None, "UNKNOWN"
 
 def get_spy_score():
-    try:
-        df = yf.Ticker("SPY").history(period="1y")
-        price = df["Close"].iloc[-1]
-        ma50 = df["Close"].rolling(50).mean().iloc[-1]
-        ma200 = df["Close"].rolling(200).mean().iloc[-1]
-        if price > ma50 and ma50 > ma200:
-            return 1, price, ma50, ma200, "BULLISH"
-        elif price > ma200:
-            return 0, price, ma50, ma200, "NEUTRAL"
-        else:
-            return -1, price, ma50, ma200, "BEARISH"
-    except:
-        return 0, 0, 0, 0, "UNKNOWN"
+    for attempt in range(3):
+        try:
+            df = yf.Ticker("SPY").history(period="1y")
+            closes = df["Close"].dropna()
+            if len(closes) < 200:
+                raise ValueError("insufficient SPY data")
+            price = float(closes.iloc[-1])
+            ma50 = float(closes.rolling(50).mean().iloc[-1])
+            ma200 = float(closes.rolling(200).mean().iloc[-1])
+            if not price or price != price or price <= 0:
+                raise ValueError("bad SPY price")
+            if price > ma50 and ma50 > ma200:
+                return 1, price, ma50, ma200, "BULLISH"
+            elif price > ma200:
+                return 0, price, ma50, ma200, "NEUTRAL"
+            else:
+                return -1, price, ma50, ma200, "BEARISH"
+        except Exception:
+            time.sleep(2)
+    return 0, None, None, None, "UNKNOWN"
 
 def get_sector_rotation_score():
     try:
@@ -110,8 +121,8 @@ def get_regime():
     yield_score, spread, yield_label = get_yield_curve_score()
     breadth_score, breadth_pct, breadth_label = get_breadth_score()
 
-    print(f"VIX:            {vix_val:.1f} — {vix_label}")
-    print(f"SPY:            ${spy_price:.2f} | 50MA: ${ma50:.2f} | 200MA: ${ma200:.2f} — {spy_label}")
+    print(f"VIX:            {vix_val:.1f} — {vix_label}" if vix_val is not None else "VIX:            UNAVAILABLE")
+    print(f"SPY:            ${spy_price:.2f} | 50MA: ${ma50:.2f} | 200MA: ${ma200:.2f} — {spy_label}" if spy_price is not None else "SPY:            UNAVAILABLE")
     print(f"Sector Rotation: Growth {growth_ret:.1f}% vs Defensive {def_ret:.1f}% — {rotation_label}")
     print(f"Yield Curve:    Spread {spread:.2f}% — {yield_label}")
     print(f"Breadth:        {breadth_pct:.0f}% advancing — {breadth_label}")
@@ -134,15 +145,15 @@ def get_regime():
     print("=" * 50)
 
     return {
-        "regime": regime,
-        "score": total_score,
-        "threshold_adjustment": threshold_adjustment,
-        "vix": vix_val,
-        "spy": spy_price,
-        "breadth": breadth_pct,
-        "rotation": rotation_label,
-        "yield_curve": spread
-    }
+    "regime": regime,
+    "score": total_score,
+    "threshold_adjustment": threshold_adjustment,
+    "vix": vix_val if vix_val is not None else 0,
+    "spy": spy_price if spy_price is not None else 0,
+    "breadth": breadth_pct,
+    "rotation": rotation_label,
+    "yield_curve": spread
+}
 
 if __name__ == "__main__":
     get_regime()
