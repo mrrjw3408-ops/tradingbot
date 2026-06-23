@@ -5,18 +5,28 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import STARTING_CAPITAL, MAX_POSITION_PCT
 
-STRATEGY_RULES = {
-    ("MEAN_REVERSION", "BEAR"):    {"strategy": "SELL_PUT_SPREAD", "confidence": "HIGH",   "size_pct": 0.05},
-    ("MEAN_REVERSION", "NEUTRAL"): {"strategy": "SELL_PUT_SPREAD", "confidence": "MEDIUM", "size_pct": 0.03},
-    ("MEAN_REVERSION", "BULL"):    {"strategy": "SELL_PUT_SPREAD", "confidence": "LOW",    "size_pct": 0.02},
-    ("MOMENTUM", "BULL"):          {"strategy": "BUY_CALL_SPREAD",  "confidence": "MEDIUM", "size_pct": 0.03},
-    ("MOMENTUM", "NEUTRAL"):       {"strategy": "SELL_PUT_SPREAD", "confidence": "LOW",    "size_pct": 0.02},
-    ("MOMENTUM", "BEAR"):          {"strategy": "NO_TRADE",         "confidence": "AVOID",  "size_pct": 0.00},
-    ("NEUTRAL", "BULL"):           {"strategy": "SELL_PUT_SPREAD", "confidence": "MEDIUM", "size_pct": 0.03},
-    ("NEUTRAL", "NEUTRAL"):        {"strategy": "SELL_PUT_SPREAD", "confidence": "LOW",    "size_pct": 0.02},
-    ("NEUTRAL", "BEAR"):           {"strategy": "SELL_PUT_SPREAD", "confidence": "LOW",    "size_pct": 0.02},
-}
+# Based on full backtest — 4 windows, ~19,400 rows:
+# MEAN_REVERSION + BEAR     = 77% WR, 9.59% avg, 528 trades  -> max confidence
+# MOMENTUM + BULL           = 62% WR, 7.55% avg, 850 trades  -> high confidence (upgraded)
+# NEUTRAL + BULL            = 61% WR, 6.13% avg, 973 trades  -> high confidence
+# NEUTRAL + BEAR            = 61% WR, 6.77% avg, 3368 trades -> high confidence
+# MEAN_REVERSION + BULL     = 65% WR, 6.05% avg, only 17 trades -> promising, low sample, kept small
+# MOMENTUM + NEUTRAL        = 55% WR, 5.27% avg, 4581 trades -> medium confidence
+# NEUTRAL + NEUTRAL         = 55% WR, 4.97% avg, 6878 trades -> medium confidence
+# MEAN_REVERSION + NEUTRAL  = 54% WR, 4.95% avg, 327 trades  -> medium confidence
+# MOMENTUM + BEAR           = 49% WR, 4.69% avg, 899 trades  -> below coinflip, avoid
 
+STRATEGY_RULES = {
+    ("MEAN_REVERSION", "BEAR"):    {"strategy": "SELL_PUT_SPREAD",  "confidence": "HIGH",   "size_pct": 0.05},
+    ("MOMENTUM", "BULL"):          {"strategy": "BUY_CALL_SPREAD",  "confidence": "HIGH",   "size_pct": 0.05},
+    ("NEUTRAL", "BULL"):           {"strategy": "SELL_PUT_SPREAD",  "confidence": "HIGH",   "size_pct": 0.04},
+    ("NEUTRAL", "BEAR"):           {"strategy": "SELL_PUT_SPREAD",  "confidence": "HIGH",   "size_pct": 0.04},
+    ("MEAN_REVERSION", "BULL"):    {"strategy": "SELL_PUT_SPREAD",  "confidence": "MEDIUM", "size_pct": 0.02},
+    ("MOMENTUM", "NEUTRAL"):       {"strategy": "SELL_PUT_SPREAD",  "confidence": "MEDIUM", "size_pct": 0.03},
+    ("NEUTRAL", "NEUTRAL"):        {"strategy": "SELL_PUT_SPREAD",  "confidence": "MEDIUM", "size_pct": 0.03},
+    ("MEAN_REVERSION", "NEUTRAL"): {"strategy": "SELL_PUT_SPREAD",  "confidence": "MEDIUM", "size_pct": 0.03},
+    ("MOMENTUM", "BEAR"):          {"strategy": "NO_TRADE",         "confidence": "AVOID",  "size_pct": 0.00},
+}
 
 def get_options_chain(ticker):
     try:
