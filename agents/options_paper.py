@@ -113,18 +113,30 @@ def check_open_trades():
                 spread_desc = row[10]
                 breakeven = float(row[17]) if row[17] else 0
 
-                # Estimate current spread value
+                # Pull the REAL current options chain for this expiration
+                # instead of estimating with a linear approximation
+                stock_obj = yf.Ticker(ticker)
+                try:
+                    chain = stock_obj.option_chain(expiration)
+                except Exception as e:
+                    print(f"  Could not fetch live chain for {ticker}: {e}")
+                    continue
+
                 if strategy == "SELL_PUT_SPREAD":
                     short_strike = float(spread_desc.split('$')[1].split('P')[0])
                     long_strike = float(spread_desc.split('$')[2].split('P')[0])
+                    puts = chain.puts
 
-                    if current_price > short_strike:
-                        current_spread_value = 0.05
-                    elif current_price < long_strike:
-                        current_spread_value = short_strike - long_strike
-                    else:
-                        pct_through = (short_strike - current_price) / (short_strike - long_strike)
-                        current_spread_value = round((short_strike - long_strike) * pct_through * 0.8, 2)
+                    short_row = puts[puts['strike'] == short_strike]
+                    long_row = puts[puts['strike'] == long_strike]
+
+                    if short_row.empty or long_row.empty:
+                        print(f"  Could not find current quotes for {ticker} strikes, skipping")
+                        continue
+
+                    short_now = round((short_row.iloc[0]['bid'] + short_row.iloc[0]['ask']) / 2, 2)
+                    long_now = round((long_row.iloc[0]['bid'] + long_row.iloc[0]['ask']) / 2, 2)
+                    current_spread_value = round(short_now - long_now, 2)
 
                     current_pnl = round((entry_credit - current_spread_value) * contracts * 100, 2)
                     max_profit = round(entry_credit * contracts * 100, 2)
@@ -133,14 +145,18 @@ def check_open_trades():
                     long_strike = float(spread_desc.split('$')[1].split('C')[0])
                     short_strike = float(spread_desc.split('$')[2].split('C')[0])
                     entry_debit = abs(entry_credit)
+                    calls = chain.calls
 
-                    if current_price > short_strike:
-                        current_spread_value = short_strike - long_strike
-                    elif current_price < long_strike:
-                        current_spread_value = 0.05
-                    else:
-                        pct_through = (current_price - long_strike) / (short_strike - long_strike)
-                        current_spread_value = round((short_strike - long_strike) * pct_through * 0.8, 2)
+                    long_row = calls[calls['strike'] == long_strike]
+                    short_row = calls[calls['strike'] == short_strike]
+
+                    if long_row.empty or short_row.empty:
+                        print(f"  Could not find current quotes for {ticker} strikes, skipping")
+                        continue
+
+                    long_now = round((long_row.iloc[0]['bid'] + long_row.iloc[0]['ask']) / 2, 2)
+                    short_now = round((short_row.iloc[0]['bid'] + short_row.iloc[0]['ask']) / 2, 2)
+                    current_spread_value = round(long_now - short_now, 2)
 
                     current_pnl = round((current_spread_value - entry_debit) * contracts * 100, 2)
                     max_profit = round((short_strike - long_strike - entry_debit) * contracts * 100, 2)
