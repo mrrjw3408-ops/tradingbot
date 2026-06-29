@@ -11,13 +11,16 @@ from config import TICKERS, SECTORS, STARTING_CAPITAL, NOTIFICATION_EMAIL, GMAIL
 from agents.sentiment import get_regime
 from agents.options_strategy import analyze_trade, STRATEGY_RULES
 from agents.options_paper import log_trade
+from agents.risk import check_correlation
 from ml.predict import predict_win_probability
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-MAX_ALERTS_PER_SECTOR = 1
+# Replaced by correlation-aware sizing + MAX_SECTOR_DOLLAR_EXPOSURE cap below
 ML_PROBABILITY_FLOOR = 55
+MAX_SECTOR_DOLLAR_EXPOSURE = STARTING_CAPITAL * 0.15  # cap total $ risk per sector per day
+CORRELATION_THRESHOLD = 0.7
 
 
 def clean(val):
@@ -49,9 +52,19 @@ def get_already_alerted_today():
         rows = tracker.get_all_values()
         today = datetime.now().strftime("%Y-%m-%d")
         alerted = set()
+        keep_rows = [rows[0]] if rows else [["Date", "Ticker", "Time"]]
+
         for row in rows[1:]:
             if len(row) >= 2 and row[0] == today:
                 alerted.add(row[1])
+                keep_rows.append(row)
+            # rows from previous days are simply dropped -- no longer relevant
+            # for "already alerted today" and keeps the tab from growing forever
+
+        if len(keep_rows) < len(rows):
+            tracker.clear()
+            tracker.update(values=keep_rows, range_name='A1')
+
         return alerted
     except Exception as e:
         print(f"Error reading alert tracker: {e}")
@@ -67,6 +80,85 @@ def mark_alerted(ticker):
         tracker.append_row([today, ticker, now])
     except Exception as e:
         print(f"Error marking alert: {e}")
+
+
+def get_todays_alerted_tickers_with_sector(target_sector):
+    """Returns tickers already alerted today in the SAME sector, for correlation checking."""
+    try:
+        sheet = get_sheets()
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        opt = sheet.worksheet("Options Paper Trades")
+        opt_rows = opt.get_all_values()
+
+        same_sector_today = []
+        for row in opt_rows[1:]:
+            if len(row) >= 4 and row[1].startswith(today) and row[3] == target_sector:
+                same_sector_today.append(row[2])  # ticker column
+
+        return same_sector_today
+    except Exception as e:
+        print(f"Error checking sector exposure: {e}")
+        return []
+
+
+def get_sector_dollar_exposure(sector_tickers):
+    """Sum up total_risk already committed today for a list of tickers."""
+    try:
+        sheet = get_sheets()
+        opt = sheet.worksheet("Options Paper Trades")
+        rows = opt.get_all_values()
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        total = 0.0
+        for row in rows[1:]:
+            if len(row) >= 15 and row[1].startswith(today) and row[2] in sector_tickers:
+                try:
+                    total += float(row[14])  # total_risk column
+                except:
+                    continue
+        return total
+    except Exception as e:
+        print(f"Error summing sector exposure: {e}")
+        return 0.0
+
+
+def adjust_size_for_correlation(trade, sector_tickers_today):
+    """
+    If this new ticker is highly correlated with anything already alerted
+    today in the same sector, scale down its position size to reflect that
+    it's largely the SAME bet, not an independent one.
+    """
+    if not sector_tickers_today:
+        return trade, None  # first in this sector today, no adjustment needed
+
+    try:
+        all_tickers = sector_tickers_today + [trade["ticker"]]
+        corr_pairs = check_correlation(all_tickers)
+        is_correlated = any(
+            trade["ticker"] in (t1, t2) and val > CORRELATION_THRESHOLD
+            for t1, t2, val in corr_pairs
+        )
+    except Exception:
+        is_correlated = False
+
+    note = None
+    if is_correlated:
+        cluster_size = len(sector_tickers_today) + 1
+        scale_factor = 1 / cluster_size
+        scale_factor = max(scale_factor, 0.25)
+
+        original_risk = trade["total_risk"]
+        original_contracts = trade["contracts"]
+        trade["contracts"] = max(1, int(original_contracts * scale_factor))
+        per_contract_risk = original_risk / max(original_contracts, 1)
+        trade["total_risk"] = round(per_contract_risk * trade["contracts"], 2)
+        trade["position_pct"] = round(trade["position_pct"] * scale_factor, 1)
+
+        note = (f"Correlated with {', '.join(sector_tickers_today)} (same sector move) -- "
+                f"position size reduced to {round(scale_factor*100)}% of normal")
+
+    return trade, note
 
 
 def quick_score_stock(ticker, sector, etf_return, vix_price):
@@ -180,7 +272,7 @@ def get_news_headlines(ticker, max_items=4):
         return []
 
 
-def send_alert_email(trade, ml_prob, headlines, regime):
+def send_alert_email(trade, ml_prob, headlines, regime, correlation_note=None):
     spread = trade["spread"]
     if trade["strategy"] == "SELL_PUT_SPREAD":
         spread_desc = f"Sell ${spread['short_strike']}P / Buy ${spread['long_strike']}P"
@@ -197,6 +289,13 @@ def send_alert_email(trade, ml_prob, headlines, regime):
             news_html += f'<li style="margin-bottom:8px;"><a href="{h["url"]}" style="color:#5bb0ff;text-decoration:none;font-size:13px;">{h["title"]}</a></li>'
     else:
         news_html = '<li style="color:#666;font-size:13px;">No recent headlines found</li>'
+
+    correlation_html = ""
+    if correlation_note:
+        correlation_html = f'''<div style="background:#2a1f0a;border:1px solid #5a4419;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+      <p style="margin:0;color:#f0c674;font-size:13px;font-weight:600;">⚠️ Correlation Notice</p>
+      <p style="margin:4px 0 0;color:#d4b483;font-size:12px;">{correlation_note}</p>
+    </div>'''
 
     now = datetime.now().strftime("%B %d, %Y %I:%M %p CDT")
 
@@ -225,6 +324,8 @@ def send_alert_email(trade, ml_prob, headlines, regime):
         <p style="margin:4px 0 0;color:#fff;font-size:18px;font-weight:700;">{trade['confidence']}</p>
       </div>
     </div>
+
+    {correlation_html}
 
     <div style="background:#111;border-radius:8px;padding:16px;margin-bottom:16px;">
       <p style="margin:0 0 8px;color:#fff;font-size:14px;font-weight:600;">Trade Setup</p>
@@ -293,15 +394,11 @@ def run_live_monitor():
 
     new_alerts = 0
     checked = 0
-    sector_alert_count = {}
 
     for sector, tickers in TICKERS.items():
         etf_ret = etf_returns.get(sector, 0)
         for ticker in tickers:
             if ticker in already_alerted:
-                continue
-
-            if sector_alert_count.get(sector, 0) >= MAX_ALERTS_PER_SECTOR:
                 continue
 
             checked += 1
@@ -344,11 +441,37 @@ def run_live_monitor():
                 print(f"    Could not build options trade for {ticker}, skipping alert")
                 continue
 
+            # Check existing sector exposure today -- hard dollar cap regardless
+            # of correlation, prevents one sector from dominating the whole day
+            sector_today_tickers = get_todays_alerted_tickers_with_sector(sector)
+            current_exposure = get_sector_dollar_exposure(sector_today_tickers)
+
+            if current_exposure >= MAX_SECTOR_DOLLAR_EXPOSURE:
+                print(f"    SKIP — {sector} already at ${current_exposure:.0f} exposure today (cap: ${MAX_SECTOR_DOLLAR_EXPOSURE:.0f})")
+                continue
+
+            # Scale down size if correlated with something already alerted today
+            trade, correlation_note = adjust_size_for_correlation(trade, sector_today_tickers)
+            if correlation_note:
+                print(f"    {correlation_note}")
+
+            # Re-check the cap after sizing adjustment
+            if current_exposure + trade["total_risk"] > MAX_SECTOR_DOLLAR_EXPOSURE:
+                remaining = MAX_SECTOR_DOLLAR_EXPOSURE - current_exposure
+                if remaining < 50:
+                    print(f"    SKIP — {sector} exposure cap reached, no room remaining")
+                    continue
+                scale = remaining / trade["total_risk"]
+                trade["contracts"] = max(1, int(trade["contracts"] * scale))
+                trade["total_risk"] = round(trade["total_risk"] * scale, 2)
+                trade["position_pct"] = round(trade["position_pct"] * scale, 1)
+                extra_note = f"Further reduced to fit remaining ${remaining:.0f} sector cap"
+                correlation_note = f"{correlation_note} | {extra_note}" if correlation_note else extra_note
+
             log_trade(trade)
             headlines = get_news_headlines(ticker)
-            send_alert_email(trade, ml_prob, headlines, regime)
+            send_alert_email(trade, ml_prob, headlines, regime, correlation_note=correlation_note)
             mark_alerted(ticker)
-            sector_alert_count[sector] = sector_alert_count.get(sector, 0) + 1
             new_alerts += 1
 
             time.sleep(1.5)
