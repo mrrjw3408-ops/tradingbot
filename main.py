@@ -12,6 +12,7 @@ from agents.risk import apply_risk_rules
 from agents.options_strategy import analyze_batch
 from agents.options_paper import log_trade, check_open_trades, get_portfolio_summary
 from report import send_report
+from agents.sanity_checker import run_sanity_check
 
 print("=" * 55)
 print("TRADING BOT STARTING")
@@ -98,6 +99,16 @@ else:
 print("\nSTEP 6 — CHECKING OPEN PAPER TRADES")
 check_open_trades()
 options_summary = get_portfolio_summary()
+
+# Step 6b — Run automated sanity check on closed trades
+# Only sends an email when there's something genuinely new to flag or
+# enough closed history to be worth checking -- avoids spamming "no closed
+# trades yet" emails on every single run while positions are still open
+print("\nSTEP 6b — RUNNING SANITY CHECK")
+try:
+    run_sanity_check(send_email=False)
+except Exception as e:
+    print(f"Sanity check error: {e}")
 
 # Step 7 — Send report
 print("\nSTEP 7 — SENDING REPORT")
