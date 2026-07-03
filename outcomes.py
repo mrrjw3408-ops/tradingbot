@@ -180,7 +180,7 @@ for sector, tickers in stocks.items():
 
             logged += 1
             print(f"{ticker} ({sector}): ${price:.2f} | RSI: {rsi:.1f} | Score: {score} | {breakdown}")
-            time.sleep(1.75)
+            time.sleep(1.5)
 
         except Exception as e:
             print(f"{ticker}: skipped — {e}")
