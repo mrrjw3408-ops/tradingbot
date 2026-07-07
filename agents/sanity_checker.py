@@ -291,6 +291,7 @@ def run_sanity_check(send_email=True, force_email=False):
 
     if not trades:
         print("No closed trades to check yet -- nothing to validate.")
+        log_check_run(0, 0, False)
         print("=" * 50)
         return
 
