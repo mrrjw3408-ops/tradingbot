@@ -3,7 +3,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import sys
+import os
+from concurrent.futures import ThreadPoolExecutor
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
@@ -20,8 +22,11 @@ cutoff_str = cutoff_date.strftime("%Y-%m-%d")
 print(f"Total rows: {len(rows)-1}")
 
 price_cache = {}
+bad_tickers = set()
 
 def get_price(ticker):
+    if ticker in bad_tickers:
+        raise ValueError("ticker previously failed")
     if ticker in price_cache:
         return price_cache[ticker]
     def fetch():
@@ -29,9 +34,15 @@ def get_price(ticker):
         if df.empty:
             raise ValueError("no data")
         return float(df["Close"].iloc[-1])
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(fetch)
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fetch)
+    try:
         price = future.result(timeout=15)
+    except Exception:
+        bad_tickers.add(ticker)
+        raise
+    finally:
+        executor.shutdown(wait=False)
     price_cache[ticker] = price
     return price
 
@@ -91,7 +102,9 @@ for i, row in enumerate(rows[1:], start=2):
                 print(f"{ticker}: {outcome} — best return {best_return}%")
                 time.sleep(1)
 
-    except (Exception, FutureTimeoutError) as e:
+    except Exception as e:
         print(f"Row {i} error: {e}")
 
-print(f"\nOutcomes check complete! Checked {checked} rows, skipped {skipped_old} old rows, {len(price_cache)} unique tickers fetched.")
+print(f"\nOutcomes check complete! Checked {checked} rows, skipped {skipped_old} old rows, {len(price_cache)} unique tickers fetched, {len(bad_tickers)} failed tickers.")
+sys.stdout.flush()
+os._exit(0)

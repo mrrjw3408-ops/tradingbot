@@ -10,7 +10,7 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -30,14 +30,19 @@ jobs:
         run: echo "$GOOGLE_CREDENTIALS" > credentials.json
 
       - name: Run scanner
+        timeout-minutes: 30
+        continue-on-error: true
         run: python3 outcomes.py
 
       - name: Check outcomes
+        timeout-minutes: 8
+        continue-on-error: true
         run: python3 outcomes_checker.py
 
       - name: Run main agent
+        if: always()
+        timeout-minutes: 15
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
         run: python3 main.py
-        

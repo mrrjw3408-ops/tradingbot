@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import sys
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import TICKERS
 
@@ -73,9 +73,12 @@ for sector, tickers in stocks.items():
         try:
             def fetch():
                 return yf.Ticker(ticker).history(period="1y")
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(fetch)
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(fetch)
+            try:
                 df = future.result(timeout=15)
+            finally:
+                executor.shutdown(wait=False)
 
             if df.empty or len(df) < 200:
                 continue
@@ -156,8 +159,8 @@ for sector, tickers in stocks.items():
                 trade_mode = "MOMENTUM"
                 weighted_score = (mr_score * 0.5) + (trend_score * 1.5) + sector_score + vol_score + institutional_score
             else:
-               trade_mode = "NEUTRAL"
-               weighted_score = mr_score + trend_score + sector_score + vol_score + institutional_score
+                trade_mode = "NEUTRAL"
+                weighted_score = mr_score + trend_score + sector_score + vol_score + institutional_score
 
             score = weighted_score
             score = round(min(max(score + market_filter_bonus, 0), 10), 2)
@@ -187,7 +190,9 @@ for sector, tickers in stocks.items():
             print(f"{ticker} ({sector}): ${price:.2f} | RSI: {rsi:.1f} | Score: {score} | {breakdown}")
             time.sleep(1.5)
 
-        except (Exception, FutureTimeoutError) as e:
+        except Exception as e:
             print(f"{ticker}: skipped — {e}")
 
 print(f"\nScan complete! {logged} stocks logged to Google Sheets!")
+sys.stdout.flush()
+os._exit(0)
