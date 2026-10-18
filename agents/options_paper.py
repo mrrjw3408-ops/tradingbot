@@ -15,7 +15,12 @@ def get_sheets():
     sheet = client.open("Trading Bot Log")
     return sheet
 
+OPTIONS_PAPER_PAUSED = True  # set to False to resume logging new paper options trades
+
 def log_trade(trade):
+    if OPTIONS_PAPER_PAUSED:
+        print("Options paper trading is paused - trade not logged")
+        return None
     try:
         sheet = get_sheets()
         options_sheet = sheet.worksheet("Options Paper Trades")
