@@ -1,1 +1,5 @@
 credentials.json
+
+prices_cache.pkl
+options_trades_backup_*.csv
+config.py.bak
